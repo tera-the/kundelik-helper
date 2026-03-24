@@ -1,7 +1,7 @@
 import { useMemo, useState, type JSX } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "../@/components/ui/card";
+import { Input } from "../@/components/ui/input";
+import { Button } from "../@/components/ui/button";
 import { X } from "lucide-react";
 
 type FoChipProps = {
@@ -15,15 +15,6 @@ type ExamRowProps = {
   maxScore: string;
   setScore: (value: string) => void;
   setMaxScore: (value: string) => void;
-};
-
-type PredictionPlan = {
-  foCount: number;
-  foAverage: number;
-  sor1Needed: number;
-  sor2Needed: number;
-  sochNeeded: number;
-  reachable: boolean;
 };
 
 function avg(arr: number[]): number {
@@ -58,42 +49,16 @@ function formatExamNeeded(percent: number, maxScore: number): number {
   return (percent / 100) * maxScore;
 }
 
-function buildPlan(target: number, sor1Max: number, sor2Max: number, sochMax: number): PredictionPlan {
-  const presets = [
-    { foCount: 8, foAverage: 8 },
-    { foCount: 10, foAverage: 8 },
-    { foCount: 10, foAverage: 9 },
-    { foCount: 12, foAverage: 8 },
-    { foCount: 12, foAverage: 9 },
-    { foCount: 14, foAverage: 9 },
-    { foCount: 14, foAverage: 10 },
-  ];
+function getNeededFoAverage(target: number, sorPercent: number, sochPercent: number): number {
+  return (target - sorPercent * 0.25 - sochPercent * 0.5) / 0.25 / 10;
+}
 
-  for (const preset of presets) {
-    const foPercent = preset.foAverage * 10;
-    const remaining = target - foPercent * 0.25;
-    const neededExamPercent = remaining / 0.75;
+function getNeededSorAverage(target: number, foPercent: number, sochPercent: number): number {
+  return (target - foPercent * 0.25 - sochPercent * 0.5) / 0.25;
+}
 
-    if (neededExamPercent <= 100) {
-      return {
-        foCount: preset.foCount,
-        foAverage: preset.foAverage,
-        sor1Needed: clamp(formatExamNeeded(neededExamPercent, sor1Max), 0, sor1Max),
-        sor2Needed: clamp(formatExamNeeded(neededExamPercent, sor2Max), 0, sor2Max),
-        sochNeeded: clamp(formatExamNeeded(neededExamPercent, sochMax), 0, sochMax),
-        reachable: true,
-      };
-    }
-  }
-
-  return {
-    foCount: 14,
-    foAverage: 10,
-    sor1Needed: sor1Max,
-    sor2Needed: sor2Max,
-    sochNeeded: sochMax,
-    reachable: false,
-  };
+function getNeededSochPercent(target: number, foPercent: number, sorPercent: number): number {
+  return (target - foPercent * 0.25 - sorPercent * 0.25) / 0.5;
 }
 
 function FoChip({ value, onRemove }: FoChipProps) {
@@ -116,7 +81,7 @@ function ExamRow({ label, score, maxScore, setScore, setMaxScore }: ExamRowProps
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <label className="text-sm font-medium text-slate-700">{label}</label>
-        <span className="text-xs text-slate-400">в формате баллы / максимум</span>
+        <span className="text-xs text-slate-400">баллы / максимум</span>
       </div>
       <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
         <Input
@@ -142,14 +107,14 @@ function ExamRow({ label, score, maxScore, setScore, setMaxScore }: ExamRowProps
 }
 
 export default function GradePredictor(): JSX.Element {
-  const [foList, setFoList] = useState<number[]>([8, 6, 8, 10, 9, 9, 9, 9, 8, 9, 9, 8]);
+  const [foList, setFoList] = useState<number[]>([]);
   const [customFo, setCustomFo] = useState<string>("");
 
-  const [sor1, setSor1] = useState<string>("18");
+  const [sor1, setSor1] = useState<string>("");
   const [sor1Max, setSor1Max] = useState<string>("20");
-  const [sor2, setSor2] = useState<string>("20");
+  const [sor2, setSor2] = useState<string>("");
   const [sor2Max, setSor2Max] = useState<string>("20");
-  const [soch, setSoch] = useState<string>("22");
+  const [soch, setSoch] = useState<string>("");
   const [sochMax, setSochMax] = useState<string>("24");
 
   const [target, setTarget] = useState<number>(90);
@@ -179,22 +144,29 @@ export default function GradePredictor(): JSX.Element {
     const foPercent = avg(foList) * 10;
     const sor1Percent = toPercent(Number(sor1), sor1MaxNum);
     const sor2Percent = toPercent(Number(sor2), sor2MaxNum);
-    const sorPercent = avg([sor1Percent, sor2Percent].filter((x) => x > 0));
+    const sorPercents = [sor1Percent, sor2Percent].filter((x) => x > 0);
+    const sorPercent = avg(sorPercents);
     const sochPercent = toPercent(Number(soch), sochMaxNum);
 
     const hasFo = foList.length > 0;
-    const hasSor = Number(sor1) > 0 || Number(sor2) > 0;
+    const hasSor1 = Number(sor1) > 0;
+    const hasSor2 = Number(sor2) > 0;
+    const hasSor = hasSor1 || hasSor2;
+    const hasBothSors = hasSor1 && hasSor2;
     const hasSoch = Number(soch) > 0;
     const hasAnyScores = hasFo || hasSor || hasSoch;
-    const allZero = !hasAnyScores;
 
     const finalPercent = foPercent * 0.25 + sorPercent * 0.25 + sochPercent * 0.5;
     const diff = target - finalPercent;
 
-    const requiredSochPercent = (target - foPercent * 0.25 - sorPercent * 0.25) / 0.5;
-    const neededRawSoch = formatExamNeeded(requiredSochPercent, sochMaxNum);
+    const neededSochPercent = getNeededSochPercent(target, foPercent, sorPercent);
+    const neededSochRaw = formatExamNeeded(neededSochPercent, sochMaxNum);
 
-    const zeroPlan = buildPlan(target, sor1MaxNum, sor2MaxNum, sochMaxNum);
+    const neededSorPercent = getNeededSorAverage(target, foPercent, sochPercent);
+    const neededSor1Raw = formatExamNeeded(neededSorPercent, sor1MaxNum);
+    const neededSor2Raw = formatExamNeeded(neededSorPercent, sor2MaxNum);
+
+    const neededFoAverage = getNeededFoAverage(target, sorPercent, sochPercent);
 
     return {
       foPercent,
@@ -202,14 +174,23 @@ export default function GradePredictor(): JSX.Element {
       sochPercent,
       finalPercent,
       diff,
-      allZero,
       grade: getQuarterGrade(finalPercent),
-      requiredSochPercent,
-      neededRawSoch,
+      hasAnyScores,
+      hasFo,
+      hasSor1,
+      hasSor2,
+      hasSoch,
+      hasSor,
+      hasBothSors,
       sor1MaxNum,
       sor2MaxNum,
       sochMaxNum,
-      zeroPlan,
+      neededSochPercent,
+      neededSochRaw,
+      neededSorPercent,
+      neededSor1Raw,
+      neededSor2Raw,
+      neededFoAverage,
     };
   }, [foList, sor1, sor1Max, sor2, sor2Max, soch, sochMax, target]);
 
@@ -221,9 +202,6 @@ export default function GradePredictor(): JSX.Element {
         <Card className="rounded-3xl border-sky-100 shadow-xl shadow-sky-100/50">
           <CardContent className="p-6 md:p-8">
             <div className="mb-6">
-              <div className="mb-2 inline-flex rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-700">
-                Kundelik helper
-              </div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 md:text-3xl">
                 Прогноз четвертной оценки
               </h1>
@@ -286,23 +264,38 @@ export default function GradePredictor(): JSX.Element {
               </div>
 
               <div className="grid gap-4 rounded-2xl border border-sky-100 bg-white p-4 md:grid-cols-2">
-                <ExamRow
-                  label="СОР 1"
-                  score={sor1}
-                  maxScore={sor1Max}
-                  setScore={setSor1}
-                  setMaxScore={setSor1Max}
-                />
-                <ExamRow
-                  label="СОР 2"
-                  score={sor2}
-                  maxScore={sor2Max}
-                  setScore={setSor2}
-                  setMaxScore={setSor2Max}
-                />
+                <div className="space-y-2">
+                  <ExamRow
+                    label="СОР 1"
+                    score={sor1}
+                    maxScore={sor1Max}
+                    setScore={setSor1}
+                    setMaxScore={setSor1Max}
+                  />
+                  {data.hasFo && !data.hasSor1 && !data.hasSoch && (
+                    <p className="text-xs text-sky-700">
+                      С твоими ФО для цели {target}% СОР 1 нужен примерно <span className="font-semibold">{clamp(data.neededSor1Raw, 0, data.sor1MaxNum).toFixed(1)} / {data.sor1MaxNum}</span>
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <ExamRow
+                    label="СОР 2"
+                    score={sor2}
+                    maxScore={sor2Max}
+                    setScore={setSor2}
+                    setMaxScore={setSor2Max}
+                  />
+                  {data.hasFo && !data.hasSor2 && !data.hasSoch && (
+                    <p className="text-xs text-sky-700">
+                      Примерно столько же: <span className="font-semibold">{clamp(data.neededSor2Raw, 0, data.sor2MaxNum).toFixed(1)} / {data.sor2MaxNum}</span>
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <div className="rounded-2xl border border-sky-100 bg-white p-4">
+              <div className="rounded-2xl border border-sky-100 bg-white p-4 space-y-2 mb-10">
                 <ExamRow
                   label="СОЧ"
                   score={soch}
@@ -310,8 +303,15 @@ export default function GradePredictor(): JSX.Element {
                   setScore={setSoch}
                   setMaxScore={setSochMax}
                 />
+                {data.hasFo && data.hasBothSors && !data.hasSoch && (
+                  <p className="text-xs text-sky-700">
+                    С текущими ФО и СОР для цели {target}% нужен СОЧ примерно <span className="font-semibold">{clamp(data.neededSochRaw, 0, data.sochMaxNum).toFixed(1)} / {data.sochMaxNum}</span>
+                  </p>
+                )}
               </div>
             </div>
+            
+            <span className="text-md text-gray-300 flex justify-center">© 2026. Все права защищены.</span>
           </CardContent>
         </Card>
 
@@ -373,37 +373,24 @@ export default function GradePredictor(): JSX.Element {
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4">
-                {data.allZero ? (
-                  data.zeroPlan.reachable ? (
-                    <>
-                      <p className="text-sm font-medium text-slate-800">Примерный план, чтобы выйти на цель</p>
-                      <div className="mt-3 space-y-2 text-sm text-slate-600">
-                        <p>
-                          Возьми примерно <span className="font-semibold text-sky-700">{data.zeroPlan.foCount} ФО</span> со средним около{' '}
-                          <span className="font-semibold text-sky-700">{data.zeroPlan.foAverage.toFixed(1)} / 10</span>
-                        </p>
-                        <p>
-                          За <span className="font-semibold text-sky-700">СОР 1</span> нужно примерно{' '}
-                          <span className="font-semibold text-sky-700">{data.zeroPlan.sor1Needed.toFixed(1)} / {data.sor1MaxNum}</span>
-                        </p>
-                        <p>
-                          За <span className="font-semibold text-sky-700">СОР 2</span> нужно примерно{' '}
-                          <span className="font-semibold text-sky-700">{data.zeroPlan.sor2Needed.toFixed(1)} / {data.sor2MaxNum}</span>
-                        </p>
-                        <p>
-                          За <span className="font-semibold text-sky-700">СОЧ</span> нужно примерно{' '}
-                          <span className="font-semibold text-sky-700">{data.zeroPlan.sochNeeded.toFixed(1)} / {data.sochMaxNum}</span>
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-medium text-red-500">Цель слишком высокая для реалистичного плана</p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Даже при почти идеальных ФО, СОР и СОЧ выйти на {target}% очень тяжело.
+                {!data.hasAnyScores ? (
+                  <>
+                    <p className="text-sm font-medium text-slate-800">Что нужно для этой цели с нуля</p>
+                    <div className="mt-3 space-y-2 text-sm text-slate-600">
+                      <p>
+                        Нужен средний <span className="font-semibold text-sky-700">ФО около {clamp(data.neededFoAverage, 0, 10).toFixed(1)} / 10</span>
                       </p>
-                    </>
-                  )
+                      <p>
+                        СОР 1 примерно <span className="font-semibold text-sky-700">{clamp(data.neededSor1Raw, 0, data.sor1MaxNum).toFixed(1)} / {data.sor1MaxNum}</span>
+                      </p>
+                      <p>
+                        СОР 2 примерно <span className="font-semibold text-sky-700">{clamp(data.neededSor2Raw, 0, data.sor2MaxNum).toFixed(1)} / {data.sor2MaxNum}</span>
+                      </p>
+                      <p>
+                        СОЧ примерно <span className="font-semibold text-sky-700">{clamp(data.neededSochRaw, 0, data.sochMaxNum).toFixed(1)} / {data.sochMaxNum}</span>
+                      </p>
+                    </div>
+                  </>
                 ) : data.diff <= 0 ? (
                   <>
                     <p className="text-sm font-medium text-emerald-600">Цель уже достигнута</p>
@@ -411,27 +398,38 @@ export default function GradePredictor(): JSX.Element {
                       Ты уже выше цели на <span className="font-semibold">{Math.abs(data.diff).toFixed(1)}%</span>
                     </p>
                   </>
-                ) : data.requiredSochPercent > 100 ? (
-                  <>
-                    <p className="text-sm font-medium text-red-500">До этой цели дойти уже нельзя</p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      Даже если взять максимум за СОЧ, итог будет ниже {target}%
-                    </p>
-                  </>
                 ) : (
                   <>
                     <p className="text-sm font-medium text-slate-800">Что нужно, чтобы дойти до цели</p>
                     <div className="mt-3 space-y-2 text-sm text-slate-600">
-                      <p>
-                        Нужен <span className="font-semibold text-sky-700">СОЧ</span> примерно{' '}
-                        <span className="font-semibold text-sky-700">{clamp(data.neededRawSoch, 0, data.sochMaxNum).toFixed(1)} / {data.sochMaxNum}</span>
-                      </p>
-                      <p className="text-slate-500">
-                        Это около {clamp(data.requiredSochPercent, 0, 100).toFixed(1)}% за СОЧ
-                      </p>
-                      <p className="text-slate-500">
-                        Сейчас до цели не хватает {data.diff.toFixed(1)}%
-                      </p>
+                      {!data.hasFo && (
+                        <p>
+                          По текущим СОР и СОЧ нужен средний <span className="font-semibold text-sky-700">ФО около {clamp(data.neededFoAverage, 0, 10).toFixed(1)} / 10</span>
+                        </p>
+                      )}
+
+                      {data.hasFo && !data.hasBothSors && (
+                        <>
+                          <p>
+                            СОР 1 нужен примерно <span className="font-semibold text-sky-700">{clamp(data.neededSor1Raw, 0, data.sor1MaxNum).toFixed(1)} / {data.sor1MaxNum}</span>
+                          </p>
+                          <p>
+                            СОР 2 нужен примерно <span className="font-semibold text-sky-700">{clamp(data.neededSor2Raw, 0, data.sor2MaxNum).toFixed(1)} / {data.sor2MaxNum}</span>
+                          </p>
+                        </>
+                      )}
+
+                      {data.hasFo &&
+                        <p>
+                          СОЧ нужен примерно <span className="font-semibold text-sky-700">{clamp(data.neededSochRaw, 0, data.sochMaxNum).toFixed(1)} / {data.sochMaxNum}</span>
+                        </p>
+                      }
+
+                      {data.hasFo && data.hasSor && data.hasSoch && (
+                        <p>
+                          Сейчас до цели не хватает <span className="font-semibold text-sky-700">{data.diff.toFixed(1)}%</span>
+                        </p>
+                      )}
                     </div>
                   </>
                 )}
